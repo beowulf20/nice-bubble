@@ -79,6 +79,11 @@ Options:
 - `WithStatus(StatusState)`: set initial status values.
 - `WithStatusBar(StatusBarModel)`: replace the default status bar.
 - `WithToolFormat(ToolFormatModel)`: replace the default tool renderer.
+- `WithMessagePrefix(role, prefix)`: replace one rendered role prefix.
+- `WithMessagePrefixes(MessagePrefixes)`: replace several rendered role
+  prefixes.
+- `WithRoleStyle(role, lipgloss.Style)`: replace one rendered role style.
+- `WithRoleStyles(RoleStyles)`: replace several rendered role styles.
 - `WithStyles(Styles)`: replace the default Lip Gloss styles.
 - `WithSpinner(spinner.Model)`: replace the spinner model.
 - `WithEmptyMessage(string)`: set text shown before any messages. Empty string
@@ -161,8 +166,31 @@ m.AddMessage(chat.ChatMessage{
 })
 ```
 
-Roles are rendered as a simple prefix: `role: content`. The `thinking` role uses
-the `Styles.Thinking` style.
+Roles are rendered with prefixes. Defaults are `user: `, `assistant: `,
+`system: `, and `thinking: `. The `thinking` role uses the `Styles.Thinking`
+style.
+
+Customize prefixes:
+
+```go
+m := chat.New(
+    chat.WithMessagePrefix("user", "you: "),
+    chat.WithMessagePrefix("assistant", "ai: "),
+)
+```
+
+Or configure several at once:
+
+```go
+m := chat.New(
+    chat.WithMessagePrefixes(chat.MessagePrefixes{
+        "user":      "> ",
+        "assistant": "< ",
+    }),
+)
+```
+
+Use an empty prefix to render content without a role label.
 
 ## Streaming
 
@@ -432,6 +460,29 @@ styles.StatusBar = styles.StatusBar.
 m := chat.New(chat.WithStyles(styles))
 ```
 
+Messages also have per-role styles. Defaults give `user`, `assistant`, and
+`system` different colors.
+
+```go
+m := chat.New(
+    chat.WithRoleStyle("user", lipgloss.NewStyle().Foreground(lipgloss.Color("87"))),
+    chat.WithRoleStyle("assistant", lipgloss.NewStyle().Foreground(lipgloss.Color("252"))),
+    chat.WithRoleStyle("system", lipgloss.NewStyle().Foreground(lipgloss.Color("220"))),
+)
+```
+
+Or configure several at once:
+
+```go
+m := chat.New(
+    chat.WithRoleStyles(chat.RoleStyles{
+        "user":      lipgloss.NewStyle().Foreground(lipgloss.Color("87")),
+        "assistant": lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
+        "system":    lipgloss.NewStyle().Foreground(lipgloss.Color("220")),
+    }),
+)
+```
+
 Style fields:
 
 - `Base`
@@ -441,6 +492,12 @@ Style fields:
 - `Slash`
 - `SlashPick`
 - `StatusBar`
+
+Role style helpers:
+
+- `DefaultRoleStyles()`
+- `WithRoleStyle(role, style)`
+- `WithRoleStyles(styles)`
 
 ## Input And Key Bindings
 

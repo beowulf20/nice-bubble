@@ -12,6 +12,8 @@ type Styles struct {
 	StatusBar lipgloss.Style
 }
 
+type RoleStyles map[string]lipgloss.Style
+
 func DefaultStyles() Styles {
 	return Styles{
 		Base:      lipgloss.NewStyle(),
@@ -22,4 +24,24 @@ func DefaultStyles() Styles {
 		SlashPick: lipgloss.NewStyle().Foreground(lipgloss.Color("220")),
 		StatusBar: lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("236")),
 	}
+}
+
+func DefaultRoleStyles() RoleStyles {
+	styles := DefaultStyles()
+	return RoleStyles{
+		"user":      lipgloss.NewStyle().Foreground(lipgloss.Color("87")),
+		"assistant": styles.Message.Foreground(lipgloss.Color("252")),
+		"system":    lipgloss.NewStyle().Foreground(lipgloss.Color("220")),
+		"thinking":  styles.Thinking,
+	}
+}
+
+func (s RoleStyles) StyleFor(role string, fallback Styles) lipgloss.Style {
+	if style, ok := s[role]; ok {
+		return style
+	}
+	if role == "thinking" {
+		return fallback.Thinking
+	}
+	return fallback.Message
 }

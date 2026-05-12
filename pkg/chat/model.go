@@ -6,6 +6,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type Model struct {
@@ -23,6 +24,8 @@ type Model struct {
 	messageIndex  map[string]int
 	toolIndex     map[string]int
 	toolFormat    ToolFormatModel
+	messagePrefix MessagePrefixes
+	roleStyles    RoleStyles
 	styles        Styles
 	emptyMessage  string
 	scrollOffset  int
@@ -44,14 +47,16 @@ func New(opts ...Option) Model {
 	}
 
 	m := Model{
-		input:        input,
-		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)),
-		statusBar:    DefaultStatusBar(),
-		status:       status,
-		messageIndex: make(map[string]int),
-		toolIndex:    make(map[string]int),
-		toolFormat:   DefaultToolFormat(),
-		styles:       DefaultStyles(),
+		input:         input,
+		spinner:       spinner.New(spinner.WithSpinner(spinner.Dot)),
+		statusBar:     DefaultStatusBar(),
+		status:        status,
+		messageIndex:  make(map[string]int),
+		toolIndex:     make(map[string]int),
+		toolFormat:    DefaultToolFormat(),
+		messagePrefix: DefaultMessagePrefixes(),
+		roleStyles:    DefaultRoleStyles(),
+		styles:        DefaultStyles(),
 	}
 
 	for _, opt := range opts {
@@ -94,6 +99,46 @@ func WithStatus(status StatusState) Option {
 func WithToolFormat(format ToolFormatModel) Option {
 	return func(m *Model) {
 		m.toolFormat = format
+	}
+}
+
+func WithMessagePrefix(role string, prefix string) Option {
+	return func(m *Model) {
+		if m.messagePrefix == nil {
+			m.messagePrefix = DefaultMessagePrefixes()
+		}
+		m.messagePrefix[role] = prefix
+	}
+}
+
+func WithMessagePrefixes(prefixes MessagePrefixes) Option {
+	return func(m *Model) {
+		if m.messagePrefix == nil {
+			m.messagePrefix = DefaultMessagePrefixes()
+		}
+		for role, prefix := range prefixes {
+			m.messagePrefix[role] = prefix
+		}
+	}
+}
+
+func WithRoleStyle(role string, style lipgloss.Style) Option {
+	return func(m *Model) {
+		if m.roleStyles == nil {
+			m.roleStyles = DefaultRoleStyles()
+		}
+		m.roleStyles[role] = style
+	}
+}
+
+func WithRoleStyles(styles RoleStyles) Option {
+	return func(m *Model) {
+		if m.roleStyles == nil {
+			m.roleStyles = DefaultRoleStyles()
+		}
+		for role, style := range styles {
+			m.roleStyles[role] = style
+		}
 	}
 }
 
@@ -140,6 +185,7 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	wasSpinnerActive := m.spinnerActive
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -147,35 +193,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.SetWidth(max(1, msg.Width-2))
 
 	case statusUpdateMsg:
-		wasActive := m.spinnerActive
 		m.status.Apply(StatusUpdate(msg))
-		m.spinnerActive = m.shouldSpin()
-
 		cmds = append(cmds, waitForStatusUpdate(m.statusUpdates))
-		if m.spinnerActive && !wasActive {
-			cmds = append(cmds, m.spinner.Tick)
-		}
-		return m, tea.Batch(cmds...)
+		return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 
 	case chatUpdateMsg:
-		wasActive := m.spinnerActive
 		beforeLines := m.chatLineCount()
 		m.ApplyChatUpdate(ChatUpdate(msg))
 		if m.scrollOffset > 0 {
 			m.scrollOffset += m.chatLineCount() - beforeLines
 		}
 		m.clampScroll()
-		m.spinnerActive = m.shouldSpin()
 		cmds = append(cmds, waitForChatUpdate(m.chatUpdates))
-		if m.spinnerActive && !wasActive {
-			cmds = append(cmds, m.spinner.Tick)
-		}
-		return m, tea.Batch(cmds...)
+		return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 
 	case slashCommandMsg:
 		m.RegisterSlashCommand(SlashCommand(msg))
 		m.clampSlashSelection()
-		return m, waitForSlashCommand(m.slashUpdates)
+		cmds = append(cmds, waitForSlashCommand(m.slashUpdates))
+		return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -193,17 +229,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "pgup", "pageup":
 			m.scrollOffset += max(1, m.chatHeight()/2)
 			m.clampScroll()
-			return m, nil
+			return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 		case "pgdown", "pagedown":
 			m.scrollOffset -= max(1, m.chatHeight()/2)
 			m.clampScroll()
-			return m, nil
+			return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 		case "ctrl+home":
 			m.scrollOffset = m.maxScroll()
-			return m, nil
+			return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 		case "ctrl+end":
 			m.scrollOffset = 0
-			return m, nil
+			return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 		}
 
 		if m.slashPreviewVisible() {
@@ -211,20 +247,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up":
 				m.slashSelected--
 				m.wrapSlashSelection()
-				return m, nil
+				return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 			case "down":
 				m.slashSelected++
 				m.wrapSlashSelection()
-				return m, nil
+				return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 			}
 		}
 
 		if msg.String() == "enter" {
 			if m.slashPreviewVisible() && m.executeSelectedSlashCommand() {
-				return m, nil
+				return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 			}
 			if m.executeSlashInput() {
-				return m, nil
+				return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 			}
 
 			text := strings.TrimSpace(m.input.Value())
@@ -232,7 +268,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.AddMessage(ChatMessage{Role: "user", Content: text})
 				m.input.SetValue("")
 			}
-			return m, nil
+			return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 		}
 	}
 
@@ -240,7 +276,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.input, cmd = m.input.Update(msg)
 	m.clampSlashSelection()
 	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
+	return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 }
 
 func waitForStatusUpdate(updates <-chan StatusUpdate) tea.Cmd {
@@ -284,4 +320,12 @@ func waitForSlashCommand(updates <-chan SlashCommand) tea.Cmd {
 
 func (m Model) shouldSpin() bool {
 	return m.statusBar.SpinnerActive(m.status) || toolSpinnerActive(m.messages, m.toolFormat)
+}
+
+func (m *Model) syncSpinner(wasActive bool, cmds []tea.Cmd) []tea.Cmd {
+	m.spinnerActive = m.shouldSpin()
+	if m.spinnerActive && !wasActive {
+		cmds = append(cmds, m.spinner.Tick)
+	}
+	return cmds
 }

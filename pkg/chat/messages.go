@@ -28,6 +28,27 @@ type StreamMessage struct {
 	Done    bool
 }
 
+type MessagePrefixes map[string]string
+
+func DefaultMessagePrefixes() MessagePrefixes {
+	return MessagePrefixes{
+		"user":      "user: ",
+		"assistant": "assistant: ",
+		"system":    "system: ",
+		"thinking":  "thinking: ",
+	}
+}
+
+func (p MessagePrefixes) Prefix(role string) string {
+	if prefix, ok := p[role]; ok {
+		return prefix
+	}
+	if role == "" {
+		return ""
+	}
+	return role + ": "
+}
+
 func (m *Model) ApplyChatUpdate(update ChatUpdate) {
 	if update.Message != nil {
 		m.AddMessage(*update.Message)
@@ -194,18 +215,15 @@ type chatItem struct {
 	tool    *ToolMessage
 }
 
-func (i chatItem) Render(format ToolFormatModel, spin spinner.Model, styles Styles) string {
+func (i chatItem) Render(format ToolFormatModel, spin spinner.Model, styles Styles, prefixes MessagePrefixes, roleStyles RoleStyles) string {
 	switch {
 	case i.message != nil:
 		content := i.message.Content
 		if i.message.Streaming {
 			content += "▌"
 		}
-		style := styles.Message
-		if i.message.Role == "thinking" {
-			style = styles.Thinking
-		}
-		return style.Render(i.message.Role + ": " + content)
+		style := roleStyles.StyleFor(i.message.Role, styles)
+		return style.Render(prefixes.Prefix(i.message.Role) + content)
 	case i.tool != nil:
 		if i.tool.Format != nil {
 			format = *i.tool.Format
@@ -226,7 +244,7 @@ func (m Model) chatLines() []string {
 
 	var lines []string
 	for _, item := range m.messages {
-		lines = append(lines, strings.Split(item.Render(m.toolFormat, m.spinner, m.styles), "\n")...)
+		lines = append(lines, strings.Split(item.Render(m.toolFormat, m.spinner, m.styles, m.messagePrefix, m.roleStyles), "\n")...)
 	}
 	return lines
 }
