@@ -549,6 +549,7 @@ Useful commands in the example:
 - `/mock`
 - `/mock on`
 - `/mock off`
+- `/tool`
 - `/model <name>`
 - `/context`
 - `/tools`

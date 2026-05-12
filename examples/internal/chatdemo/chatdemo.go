@@ -56,6 +56,9 @@ func registerSlashCommands() {
 	chat.RegisterSlashCommand(slashUpdates, "tools", "show available tools", func(m *chat.Model, args string) {
 		m.AddMessage(chat.ChatMessage{Role: "system", Content: "tools: search, read_file, run_shell, fetch_docs, list_files"})
 	})
+	chat.RegisterSlashCommand(slashUpdates, "tool", "run one random tool call", func(m *chat.Model, args string) {
+		go addRandomToolCall()
+	})
 	chat.RegisterSlashCommand(slashUpdates, "context", "inspect current context", func(m *chat.Model, args string) {
 		m.AddMessage(chat.ChatMessage{
 			Role:    "system",
@@ -168,6 +171,7 @@ func addRandomToolCall() {
 	tools := []string{"search", "read_file", "run_shell", "fetch_docs", "list_files"}
 	name := tools[rand.Intn(len(tools))]
 	id := fmt.Sprintf("auto-%d", time.Now().UnixNano())
+	delay := time.Duration(250+rand.Intn(1750)) * time.Millisecond
 
 	statusUpdates <- chat.SetStatus("thinking", true)
 	statusUpdates <- chat.SetStatus("status", "running "+name)
@@ -178,16 +182,17 @@ func addRandomToolCall() {
 		chat.ToolMessageContent("mock call in progress"),
 	)
 
-	time.Sleep(time.Duration(120+rand.Intn(500)) * time.Millisecond)
+	time.Sleep(delay)
 
-	if rand.Intn(5) == 0 {
+	if rand.Intn(3) == 0 {
 		chatUpdates <- chat.SetToolStatus(
 			id,
 			name,
 			chat.ToolStatusError,
-			chat.ToolMessageContent("mock failure"),
+			chat.ToolMessageContent(fmt.Sprintf("mock failure after %s", delay.Round(50*time.Millisecond))),
 		)
 		statusUpdates <- chat.SetStatus("status", name+" failed")
+		statusUpdates <- chat.SetStatus("thinking", false)
 		return
 	}
 
@@ -195,7 +200,7 @@ func addRandomToolCall() {
 		id,
 		name,
 		chat.ToolStatusSuccess,
-		chat.ToolMessageContent("mock result ready"),
+		chat.ToolMessageContent(fmt.Sprintf("mock result ready after %s", delay.Round(50*time.Millisecond))),
 	)
 	statusUpdates <- chat.SetStatus("status", name+" done")
 	statusUpdates <- chat.SetStatus("thinking", false)
