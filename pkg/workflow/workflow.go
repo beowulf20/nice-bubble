@@ -17,6 +17,7 @@ type Model struct {
 	title      string
 	help       string
 	interval   time.Duration
+	fitSteps   bool
 	styles     Styles
 }
 
@@ -106,6 +107,12 @@ func WithHelp(help string) Option {
 func WithTickInterval(interval time.Duration) Option {
 	return func(m *Model) {
 		m.interval = interval
+	}
+}
+
+func WithFitSteps() Option {
+	return func(m *Model) {
+		m.fitSteps = true
 	}
 }
 
@@ -300,12 +307,12 @@ func (m Model) renderPaths(width int) string {
 }
 
 func (m Model) renderBranchPaths(width int, paths []Path) string {
-	boxWidth := max(10, (width-(maxPathDepth(paths)-1)*4)/max(1, maxPathDepth(paths)))
+	boxWidths := m.branchStepWidths(width, paths)
 	activeKey := pathKey(m.activeSteps(), m.active)
 	rendered := make(map[string]bool)
 	rows := make([]string, 0, len(paths))
 	for _, path := range paths {
-		row, ok := m.renderBranchPath(path, boxWidth, activeKey, rendered)
+		row, ok := m.renderBranchPath(path, boxWidths, activeKey, rendered)
 		if ok {
 			rows = append(rows, row)
 		}
@@ -316,22 +323,35 @@ func (m Model) renderBranchPaths(width int, paths []Path) string {
 	return lipgloss.JoinVertical(lipgloss.Center, rows...)
 }
 
-func (m Model) renderBranchPath(path Path, boxWidth int, activeKey string, rendered map[string]bool) (string, bool) {
+func (m Model) renderBranchPath(path Path, boxWidths []int, activeKey string, rendered map[string]bool) (string, bool) {
 	if len(path) == 0 {
 		return "", false
 	}
 
-	parts := make([]string, 0, len(path)*2-1)
+	arrow := m.styles.Arrow.Render(" -> ")
+	arrowBlank := blankLike(arrow)
+	parts := make([]string, 0, len(boxWidths)*2-1)
 	prefix := make(Path, 0, len(path))
 	hasNewStep := false
-	for i, step := range path {
+	for i, boxWidth := range boxWidths {
+		stepBlank := blankLike(m.styles.Step.Width(boxWidth).Render(""))
+		if i > 0 {
+			if i < len(path) {
+				parts = append(parts, arrow)
+			} else {
+				parts = append(parts, arrowBlank)
+			}
+		}
+		if i >= len(path) {
+			parts = append(parts, stepBlank)
+			continue
+		}
+
+		step := path[i]
 		prefix = append(prefix, step)
 		key := pathKey(prefix, i)
-		if i > 0 {
-			parts = append(parts, m.styles.Arrow.Render(" -> "))
-		}
 		if rendered[key] {
-			parts = append(parts, blankStep(boxWidth))
+			parts = append(parts, stepBlank)
 			continue
 		}
 
@@ -351,12 +371,12 @@ func (m Model) renderPath(width int, path Path, activePath bool) string {
 		path = Path{""}
 	}
 
-	boxWidth := max(10, (width-(len(path)-1)*4)/len(path))
+	boxWidths := m.pathStepWidths(width, path)
 	parts := make([]string, 0, len(path)*2-1)
 	for i, step := range path {
-		style := m.styles.Step.Width(boxWidth)
+		style := m.styles.Step.Width(boxWidths[i])
 		if activePath && i == m.active {
-			style = m.styles.ActiveStep.Width(boxWidth)
+			style = m.styles.ActiveStep.Width(boxWidths[i])
 		}
 		parts = append(parts, style.Render(step))
 		if i < len(path)-1 {
@@ -366,8 +386,56 @@ func (m Model) renderPath(width int, path Path, activePath bool) string {
 	return lipgloss.JoinHorizontal(lipgloss.Center, parts...)
 }
 
-func blankStep(width int) string {
-	return lipgloss.NewStyle().Width(width).Height(3).Render("")
+func (m Model) branchStepWidths(width int, paths []Path) []int {
+	depth := maxPathDepth(paths)
+	if !m.fitSteps {
+		boxWidth := max(10, (width-(depth-1)*4)/max(1, depth))
+		widths := make([]int, depth)
+		for i := range widths {
+			widths[i] = boxWidth
+		}
+		return widths
+	}
+
+	widths := make([]int, depth)
+	for i := range widths {
+		widths[i] = 10
+	}
+	for _, path := range paths {
+		for i, step := range path {
+			widths[i] = max(widths[i], m.fittedStepWidth(step))
+		}
+	}
+	return widths
+}
+
+func (m Model) pathStepWidths(width int, path Path) []int {
+	if !m.fitSteps {
+		boxWidth := max(10, (width-(len(path)-1)*4)/len(path))
+		widths := make([]int, len(path))
+		for i := range widths {
+			widths[i] = boxWidth
+		}
+		return widths
+	}
+
+	widths := make([]int, len(path))
+	for i, step := range path {
+		widths[i] = m.fittedStepWidth(step)
+	}
+	return widths
+}
+
+func (m Model) fittedStepWidth(step string) int {
+	frameWidth := max(m.styles.Step.GetHorizontalFrameSize(), m.styles.ActiveStep.GetHorizontalFrameSize())
+	return max(10, lipgloss.Width(step)+frameWidth)
+}
+
+func blankLike(block string) string {
+	return lipgloss.NewStyle().
+		Width(lipgloss.Width(block)).
+		Height(lipgloss.Height(block)).
+		Render("")
 }
 
 func maxPathDepth(paths []Path) int {

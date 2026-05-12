@@ -24,11 +24,14 @@ wf := workflow.New(
         workflow.Route("A", "B", "C"),
         workflow.Route("A", "D"),
     ),
+    workflow.WithFitSteps(),
 )
 ```
 
 Common prefixes render once. For example, `A -> B -> C` and `A -> D` share the
 `A` box, then branch with separate arrows into `B` and `D`.
+`WithFitSteps()` sizes each step to its label instead of stretching all columns
+across the available width.
 
 In a parent Bubble Tea model:
 
@@ -63,6 +66,7 @@ func (m Model) View() tea.View {
 - `WithHelp(string)`: set help text.
 - `WithTickInterval(time.Duration)`: set auto-advance interval. Use `0` to
   disable ticking.
+- `WithFitSteps()`: size step boxes to fit their labels.
 - `WithStyles(Styles)`: replace default Lip Gloss styles.
 
 ## Helpers
