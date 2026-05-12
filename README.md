@@ -1,100 +1,54 @@
-# Bubblechat
+# nice-bubble
 
-Bubblechat is a Bubble Tea chat component for building AI and LLM-assisted terminal
-interfaces faster.
+`nice-bubble` is a small collection of Bubble Tea components I like to reuse in
+my projects: polished little terminal UI pieces that are useful, configurable,
+and a bit uncommon.
 
-The goal is to make the hard parts of chat UX feel boring: message rendering,
-streaming output, slash commands, command previews, status bars, tool calls,
-thinking states, and model activity should be easy to wire into an existing
-Bubble Tea program without rebuilding the same chat shell every time.
+> Status: early project. APIs are still free to move.
 
-> Status: early project scaffold. The public API is still being designed.
+## Components
 
-## Goals
+### `pkg/chat`
 
-- Easy to embed in existing Bubble Tea applications.
-- Configurable chat layout, message styles, key bindings, and status text.
-- First-class slash command support, including previews and command metadata.
-- Built-in UI patterns for LLM workflows: streaming replies, thinking states,
-  tool calls, tool results, errors, and user/system/assistant messages.
-- Small surface area for app code: bring your own LLM client, agent loop, and
-  tool execution logic.
-- Sensible defaults with override points for teams that want a custom terminal
-  chat experience.
+A chat surface for assistant, agent, and tool-heavy terminal apps.
 
-## Planned Features
+Includes pinned input, scrollback without alt-screen, streaming messages,
+thinking messages, slash command previews, status bar composition, and tool call
+rendering.
 
-- Chat transcript model with typed message roles.
-- Composer input for multiline prompts.
-- Slash command registry.
-- Inline slash command preview panel.
-- Status bar for model state, token usage, tool state, or app-specific context.
-- Tool call display with pending, running, success, and error states.
-- Thinking blocks for reasoning or intermediate assistant progress.
-- Streaming assistant responses.
-- Configurable rendering through Lip Gloss styles.
-- Bubble Tea commands and messages for integration with external agent loops.
+Docs: [pkg/chat/README.md](pkg/chat/README.md)
 
-## Intended Shape
+Example:
 
-Bubblechat is meant to be used as a component inside a larger Bubble Tea model:
-
-```go
-type Model struct {
-    chat bubblechat.Model
-}
+```sh
+go run ./examples/chat
 ```
 
-Applications should be able to configure the component with options similar to:
+### `pkg/workflow`
 
-```go
-chat := bubblechat.New(
-    bubblechat.WithSlashCommands(commands),
-    bubblechat.WithStatusBar(status),
-    bubblechat.WithStyles(styles),
-)
+A horizontal workflow/progress component.
+
+Includes one or many paths, active path/step state, step styling, optional
+auto-ticking, and simple composition above another component.
+
+Docs: [pkg/workflow/README.md](pkg/workflow/README.md)
+
+Example:
+
+```sh
+go run ./examples/workflow
 ```
 
-The app owns the AI behavior. Bubblechat owns the terminal chat interaction.
+### Composition Example
 
-## Slash Commands
-
-Slash commands are a core part of the design, not an afterthought. The component
-should support command discovery and previews before execution:
-
-```text
-/model      Switch active model
-/clear      Clear chat history
-/tools      Show available tools
-/context    Inspect current context
+```sh
+go run ./examples/chat-workflow
 ```
-
-Expected command metadata:
-
-- Name and aliases.
-- Description.
-- Arguments.
-- Preview renderer.
-- Execute callback or message emission.
-- Enabled/disabled state.
-
-## LLM UI States
-
-Bubblechat aims to cover common AI chat states directly:
-
-- `thinking`: assistant is planning or reasoning.
-- `streaming`: assistant text is arriving incrementally.
-- `tool_call`: assistant requested an external tool.
-- `tool_result`: tool execution finished.
-- `error`: model, network, or tool failure.
-- `idle`: chat is ready for user input.
 
 ## Installation
 
-Once the package has an initial public API:
-
 ```sh
-go get github.com/beowulf20/bubblechat
+go get github.com/beowulf20/nice-bubble
 ```
 
 ## Development

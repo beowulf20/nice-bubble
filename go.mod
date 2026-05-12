@@ -1,4 +1,4 @@
-module github.com/beowulf20/bubblechat
+module github.com/beowulf20/nice-bubble
 
 go 1.25.0
 
