@@ -36,6 +36,21 @@ type Styles struct {
 
 type tickMsg struct{}
 
+type pathStepBlock struct {
+	content string
+	width   int
+}
+
+type pathRow struct {
+	startIndex     int
+	endIndex       int
+	width          int
+	startColumn    int
+	reverse        bool
+	firstStepWidth int
+	lastStepWidth  int
+}
+
 func New(opts ...Option) Model {
 	m := Model{
 		paths:    []Path{Route("Plan", "Retrieve", "Tool", "Answer")},
@@ -308,6 +323,10 @@ func (m Model) renderPaths(width int) string {
 
 func (m Model) renderBranchPaths(width int, paths []Path) string {
 	boxWidths := m.branchStepWidths(width, paths)
+	if branchWidth(boxWidths) > width {
+		return m.renderWrappedBranchPaths(width, paths)
+	}
+
 	activeKey := pathKey(m.activeSteps(), m.active)
 	rendered := make(map[string]bool)
 	rows := make([]string, 0, len(paths))
@@ -321,6 +340,20 @@ func (m Model) renderBranchPaths(width int, paths []Path) string {
 		return m.renderPath(width, Path{""}, true)
 	}
 	return lipgloss.JoinVertical(lipgloss.Center, rows...)
+}
+
+func (m Model) renderWrappedBranchPaths(width int, paths []Path) string {
+	rows := make([]string, 0, len(paths))
+	for i, path := range paths {
+		row := m.renderPath(width, path, i == m.activePath)
+		if row != "" {
+			rows = append(rows, row)
+		}
+	}
+	if len(rows) == 0 {
+		return m.renderPath(width, Path{""}, true)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
 func (m Model) renderBranchPath(path Path, boxWidths []int, activeKey string, rendered map[string]bool) (string, bool) {
@@ -372,18 +405,116 @@ func (m Model) renderPath(width int, path Path, activePath bool) string {
 	}
 
 	boxWidths := m.pathStepWidths(width, path)
-	parts := make([]string, 0, len(path)*2-1)
+	arrow := m.styles.Arrow.Render(" -> ")
+	reverseArrow := m.styles.Arrow.Render(" <- ")
+	arrowWidth := lipgloss.Width(arrow)
+	blocks := make([]pathStepBlock, 0, len(path))
 	for i, step := range path {
 		style := m.styles.Step.Width(boxWidths[i])
 		if activePath && i == m.active {
 			style = m.styles.ActiveStep.Width(boxWidths[i])
 		}
-		parts = append(parts, style.Render(step))
-		if i < len(path)-1 {
-			parts = append(parts, m.styles.Arrow.Render(" -> "))
+		stepBlock := style.Render(step)
+		blocks = append(blocks, pathStepBlock{
+			content: stepBlock,
+			width:   lipgloss.Width(stepBlock),
+		})
+	}
+
+	rows := make([]pathRow, 0, 1)
+	rowStart := 0
+	rowWidth := 0
+	for i, block := range blocks {
+		prefixWidth := 0
+		if i > rowStart {
+			prefixWidth = arrowWidth
 		}
+		if i > rowStart && rowWidth+prefixWidth+block.width > width {
+			rows = append(rows, pathRow{
+				startIndex:     rowStart,
+				endIndex:       i,
+				width:          rowWidth,
+				firstStepWidth: blocks[rowStart].width,
+				lastStepWidth:  blocks[i-1].width,
+			})
+			rowStart = i
+			rowWidth = 0
+		}
+		if i > rowStart {
+			rowWidth += arrowWidth
+		}
+		rowWidth += block.width
+	}
+	if rowStart < len(blocks) {
+		rows = append(rows, pathRow{
+			startIndex:     rowStart,
+			endIndex:       len(blocks),
+			width:          rowWidth,
+			firstStepWidth: blocks[rowStart].width,
+			lastStepWidth:  blocks[len(blocks)-1].width,
+		})
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	if len(rows) == 1 {
+		return m.renderPathRow(rows[0], blocks, arrow, reverseArrow)
+	}
+
+	for i := range rows {
+		rows[i].reverse = i%2 == 1
+		if i == 0 {
+			continue
+		}
+		prevEndColumn := rows[i-1].startColumn + rows[i-1].pathEndOffset()
+		rows[i].startColumn = prevEndColumn - rows[i].pathStartOffset()
+		rows[i].startColumn = min(max(0, rows[i].startColumn), max(0, width-rows[i].width))
+	}
+
+	pieces := make([]string, 0, len(rows)*2-1)
+	for i, row := range rows {
+		if i > 0 {
+			arrowColumn := rows[i-1].startColumn + rows[i-1].pathEndOffset()
+			pieces = append(pieces, m.wrapArrow(arrowColumn))
+		}
+		pieces = append(pieces, indentBlock(m.renderPathRow(row, blocks, arrow, reverseArrow), row.startColumn))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, pieces...)
+}
+
+func (m Model) renderPathRow(row pathRow, blocks []pathStepBlock, arrow string, reverseArrow string) string {
+	parts := make([]string, 0, (row.endIndex-row.startIndex)*2-1)
+	if row.reverse {
+		for i := row.endIndex - 1; i >= row.startIndex; i-- {
+			if i < row.endIndex-1 {
+				parts = append(parts, reverseArrow)
+			}
+			parts = append(parts, blocks[i].content)
+		}
+		return lipgloss.JoinHorizontal(lipgloss.Center, parts...)
+	}
+
+	for i := row.startIndex; i < row.endIndex; i++ {
+		if i > row.startIndex {
+			parts = append(parts, arrow)
+		}
+		parts = append(parts, blocks[i].content)
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Center, parts...)
+}
+
+func (r pathRow) pathStartOffset() int {
+	if r.reverse {
+		return r.width - r.firstStepWidth/2
+	}
+	return r.firstStepWidth / 2
+}
+
+func (r pathRow) pathEndOffset() int {
+	if r.reverse {
+		return r.lastStepWidth / 2
+	}
+	return r.width - r.lastStepWidth/2
 }
 
 func (m Model) branchStepWidths(width int, paths []Path) []int {
@@ -407,6 +538,17 @@ func (m Model) branchStepWidths(width int, paths []Path) []int {
 		}
 	}
 	return widths
+}
+
+func branchWidth(boxWidths []int) int {
+	width := 0
+	for i, boxWidth := range boxWidths {
+		if i > 0 {
+			width += lipgloss.Width(" -> ")
+		}
+		width += boxWidth
+	}
+	return width
 }
 
 func (m Model) pathStepWidths(width int, path Path) []int {
@@ -436,6 +578,24 @@ func blankLike(block string) string {
 		Width(lipgloss.Width(block)).
 		Height(lipgloss.Height(block)).
 		Render("")
+}
+
+func indentBlock(block string, spaces int) string {
+	if spaces <= 0 {
+		return block
+	}
+	indent := strings.Repeat(" ", spaces)
+	lines := strings.Split(block, "\n")
+	for i, line := range lines {
+		lines[i] = indent + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) wrapArrow(column int) string {
+	arrow := m.styles.Arrow.Height(1).Render("↓")
+	indent := max(0, column-lipgloss.Width(arrow)/2)
+	return strings.Repeat(" ", indent) + arrow
 }
 
 func maxPathDepth(paths []Path) int {
