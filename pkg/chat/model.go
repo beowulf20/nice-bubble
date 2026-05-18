@@ -17,6 +17,8 @@ type Model struct {
 	slashUpdates  <-chan SlashCommand
 	statusBar     StatusBarModel
 	status        StatusState
+	submitHandler SubmitHandler
+	echoSubmit    bool
 	spinnerActive bool
 	slashCommands []SlashCommand
 	slashSelected int
@@ -35,6 +37,12 @@ type Model struct {
 
 type Option func(*Model)
 
+type SubmitEvent struct {
+	Text string
+}
+
+type SubmitHandler func(SubmitEvent) tea.Cmd
+
 func New(opts ...Option) Model {
 	input := textinput.New()
 	input.Focus()
@@ -51,6 +59,7 @@ func New(opts ...Option) Model {
 		spinner:       spinner.New(spinner.WithSpinner(spinner.Dot)),
 		statusBar:     DefaultStatusBar(),
 		status:        status,
+		echoSubmit:    true,
 		messageIndex:  make(map[string]int),
 		toolIndex:     make(map[string]int),
 		toolFormat:    DefaultToolFormat(),
@@ -81,6 +90,18 @@ func WithChatUpdates(updates <-chan ChatUpdate) Option {
 func WithSlashUpdates(updates <-chan SlashCommand) Option {
 	return func(m *Model) {
 		m.slashUpdates = updates
+	}
+}
+
+func WithSubmitHandler(handler SubmitHandler) Option {
+	return func(m *Model) {
+		m.submitHandler = handler
+	}
+}
+
+func WithEchoSubmit(enabled bool) Option {
+	return func(m *Model) {
+		m.echoSubmit = enabled
 	}
 }
 
@@ -265,8 +286,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			text := strings.TrimSpace(m.input.Value())
 			if text != "" {
-				m.AddMessage(ChatMessage{Role: "user", Content: text})
+				if m.echoSubmit {
+					m.AddMessage(ChatMessage{Role: "user", Content: text})
+				}
 				m.input.SetValue("")
+				if m.submitHandler != nil {
+					cmds = append(cmds, m.submitHandler(SubmitEvent{Text: text}))
+				}
 			}
 			return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 		}
