@@ -2,11 +2,41 @@ package chat
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/lipgloss/v2"
 )
+
+type TokenUsage struct {
+	Input     int
+	Output    int
+	Cached    int
+	Reasoning int
+}
+
+func (u TokenUsage) String() string {
+	return "in " + formatTokenCount(u.Input) +
+		" | out " + formatTokenCount(u.Output) +
+		" | cached " + formatTokenCount(u.Cached) +
+		" | reasoning " + formatTokenCount(u.Reasoning)
+}
+
+func formatTokenCount(count int) string {
+	if count < 0 {
+		return strconv.Itoa(count)
+	}
+	if count < 1000 {
+		return strconv.Itoa(count)
+	}
+	whole := count / 1000
+	decimal := (count % 1000) / 100
+	if decimal == 0 {
+		return strconv.Itoa(whole) + "k"
+	}
+	return strconv.Itoa(whole) + "." + strconv.Itoa(decimal) + "k"
+}
 
 type StatusUpdate struct {
 	Key   string

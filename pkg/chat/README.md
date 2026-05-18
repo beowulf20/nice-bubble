@@ -12,6 +12,8 @@ persistence, prompts, and business logic.
 - No alt-screen requirement, so terminal scrollback stays available.
 - User, assistant, system, and thinking messages.
 - Streaming assistant and thinking messages.
+- Thinking visibility modes: visible, collapsed, and hidden.
+- Optional thinking filters for redaction before render or export.
 - Tool call messages with running, success, and error states.
 - Optional tool spinner.
 - Status bar DSL with left, center, and right sections.
@@ -65,6 +67,8 @@ m := chat.New(
     chat.WithStatus(status),
     chat.WithStatusBar(bar),
     chat.WithToolFormat(format),
+    chat.WithReasoningMode(chat.ReasoningVisible),
+    chat.WithThinkingFilter(filter),
     chat.WithStyles(styles),
     chat.WithSpinner(spinnerModel),
     chat.WithEmptyMessage(""),
@@ -79,6 +83,9 @@ Options:
 - `WithStatus(StatusState)`: set initial status values.
 - `WithStatusBar(StatusBarModel)`: replace the default status bar.
 - `WithToolFormat(ToolFormatModel)`: replace the default tool renderer.
+- `WithReasoningMode(ReasoningMode)`: set the default thinking display mode.
+- `WithThinkingFilter(ThinkingFilter)`: filter thinking content before render
+  and transcript export.
 - `WithMessagePrefix(role, prefix)`: replace one rendered role prefix.
 - `WithMessagePrefixes(MessagePrefixes)`: replace several rendered role
   prefixes.
@@ -170,6 +177,30 @@ Roles are rendered with prefixes. Defaults are `user: `, `assistant: `,
 `system: `, and `thinking: `. The `thinking` role uses the `Styles.Thinking`
 style.
 
+Thinking display defaults to `ReasoningVisible` for compatibility. Configure
+`ReasoningCollapsed` to render compact summaries such as
+`thinking 1.8s, 842 chars`, or `ReasoningHidden` to keep thinking messages in
+model state without rendering them. Hidden content is not deleted.
+
+```go
+m := chat.New(
+    chat.WithReasoningMode(chat.ReasoningCollapsed),
+)
+```
+
+Thinking filters run before render and transcript export. If a filter returns
+an empty string for non-empty thinking content, the effective thinking status is
+`ThinkingRedacted`.
+
+```go
+m := chat.New(chat.WithThinkingFilter(func(text string) string {
+    if shouldHideReasoning {
+        return ""
+    }
+    return text
+}))
+```
+
 Customize prefixes:
 
 ```go
@@ -207,22 +238,43 @@ chatUpdates <- chat.FinishAIStream(id)
 Thinking streams:
 
 ```go
-id := "thinking-1"
-chatUpdates <- chat.StartThinkingStream(id)
-chatUpdates <- chat.StreamThinkingMessage(id, "checking ")
-chatUpdates <- chat.StreamThinkingMessage(id, "tools")
-chatUpdates <- chat.FinishThinkingStream(id)
+thinkingID := "thinking:turn-1"
+answerID := "answer:turn-1"
+
+chatUpdates <- chat.StartThinkingStream(thinkingID)
+chatUpdates <- chat.StreamThinkingMessage(thinkingID, "checking ")
+chatUpdates <- chat.StreamThinkingMessage(thinkingID, "tools")
+chatUpdates <- chat.FinishThinkingStream(thinkingID)
+
+chatUpdates <- chat.StartAIStream(answerID)
+chatUpdates <- chat.StreamAIMessage(answerID, "done")
+chatUpdates <- chat.FinishAIStream(answerID)
 ```
+
+Paired IDs such as `thinking:<id>` and `answer:<id>` keep reasoning streams
+separate from assistant answer streams. The component does not enforce a naming
+scheme.
 
 Replace the full stream content instead of appending deltas:
 
 ```go
 chatUpdates <- chat.SetAIStream("answer-1", "replacement text")
 chatUpdates <- chat.SetThinkingStream("thinking-1", "replacement thinking")
+chatUpdates <- chat.SetThinkingStreamStatus("thinking-1", "replacement thinking", chat.ThinkingDone)
+chatUpdates <- chat.SetThinkingStatus("thinking-1", chat.ThinkingError)
+chatUpdates <- chat.SetThinkingVisibility("thinking-1", chat.ReasoningVisible)
 ```
 
 Streaming messages show a cursor marker until `FinishAIStream` or
 `FinishThinkingStream` is applied.
+
+Thinking statuses:
+
+- `ThinkingRunning`
+- `ThinkingDone`
+- `ThinkingHidden`
+- `ThinkingRedacted`
+- `ThinkingError`
 
 ## Tool Calls
 
@@ -506,6 +558,8 @@ The input is focused by default and stays directly above the status bar.
 Built-in keys:
 
 - `ctrl+c`: quit.
+- `ctrl+t`: toggle the latest rendered thinking block between collapsed and
+  visible. Hidden thinking stays hidden.
 - `enter`: submit input or execute slash command.
 - `up` / `down`: select slash command when preview is visible.
 - `pgup` / `pageup`: scroll up half the chat viewport.
@@ -528,9 +582,31 @@ messages := m.MessageCount()
 tools := m.ToolCount()
 offset := m.ScrollOffset()
 commands := m.SlashCommands()
+transcript := m.Transcript()
 
 m = m.SetSize(width, height)
 content := m.ViewContent()
+```
+
+`Transcript()` returns chat messages with thinking content after filtering and
+with thinking visibility/status metadata:
+
+```go
+type TranscriptItem struct {
+    Role string
+    ID string
+    Visibility chat.ReasoningMode
+    ThinkingStatus chat.ThinkingStatus
+    Content string
+}
+```
+
+Token usage values implement `fmt.Stringer` for status display:
+
+```go
+tokens := chat.TokenUsage{Input: 12000, Output: 1200, Cached: 9000, Reasoning: 600}
+statusUpdates <- chat.SetStatus("tokens", tokens)
+// in 12k | out 1.2k | cached 9k | reasoning 600
 ```
 
 ## Running The Example

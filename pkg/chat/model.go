@@ -10,29 +10,31 @@ import (
 )
 
 type Model struct {
-	input         textinput.Model
-	spinner       spinner.Model
-	statusUpdates <-chan StatusUpdate
-	chatUpdates   <-chan ChatUpdate
-	slashUpdates  <-chan SlashCommand
-	statusBar     StatusBarModel
-	status        StatusState
-	submitHandler SubmitHandler
-	echoSubmit    bool
-	spinnerActive bool
-	slashCommands []SlashCommand
-	slashSelected int
-	messages      []chatItem
-	messageIndex  map[string]int
-	toolIndex     map[string]int
-	toolFormat    ToolFormatModel
-	messagePrefix MessagePrefixes
-	roleStyles    RoleStyles
-	styles        Styles
-	emptyMessage  string
-	scrollOffset  int
-	w             int
-	h             int
+	input          textinput.Model
+	spinner        spinner.Model
+	statusUpdates  <-chan StatusUpdate
+	chatUpdates    <-chan ChatUpdate
+	slashUpdates   <-chan SlashCommand
+	statusBar      StatusBarModel
+	status         StatusState
+	submitHandler  SubmitHandler
+	echoSubmit     bool
+	spinnerActive  bool
+	slashCommands  []SlashCommand
+	slashSelected  int
+	messages       []chatItem
+	messageIndex   map[string]int
+	toolIndex      map[string]int
+	toolFormat     ToolFormatModel
+	messagePrefix  MessagePrefixes
+	roleStyles     RoleStyles
+	styles         Styles
+	reasoningMode  ReasoningMode
+	thinkingFilter ThinkingFilter
+	emptyMessage   string
+	scrollOffset   int
+	w              int
+	h              int
 }
 
 type Option func(*Model)
@@ -66,6 +68,7 @@ func New(opts ...Option) Model {
 		messagePrefix: DefaultMessagePrefixes(),
 		roleStyles:    DefaultRoleStyles(),
 		styles:        DefaultStyles(),
+		reasoningMode: ReasoningVisible,
 	}
 
 	for _, opt := range opts {
@@ -181,6 +184,18 @@ func WithEmptyMessage(message string) Option {
 	}
 }
 
+func WithReasoningMode(mode ReasoningMode) Option {
+	return func(m *Model) {
+		m.reasoningMode = mode
+	}
+}
+
+func WithThinkingFilter(filter ThinkingFilter) Option {
+	return func(m *Model) {
+		m.thinkingFilter = filter
+	}
+}
+
 func (m Model) SetSize(width int, height int) Model {
 	m.w, m.h = width, height
 	m.input.SetWidth(max(1, width-2))
@@ -247,6 +262,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "ctrl+t":
+			m.toggleLatestThinking()
+			return m, tea.Batch(m.syncSpinner(wasSpinnerActive, cmds)...)
 		case "pgup", "pageup":
 			m.scrollOffset += max(1, m.chatHeight()/2)
 			m.clampScroll()
